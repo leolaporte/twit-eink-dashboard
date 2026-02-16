@@ -10,6 +10,15 @@ api_key = "your_api_key"
 [youtube]
 api_key = "your_youtube_api_key"
 
+[pi]
+host = "raspberrypi.local"
+user = "pi"
+image_path = "/home/pi/dashboard.png"
+display_script = "/home/pi/display.py"
+
+[discord]
+webhook_url = ""
+
 [display]
-refresh_minutes = 30
+refresh_minutes = 60
 memberful_refresh_hours = 4
