@@ -22,6 +22,8 @@ MEMBERFUL_CACHE = CACHE_DIR / "memberful.json"
 
 WIDTH = 800
 HEIGHT = 480
+NUM_TILES = 3
+ART_WIDTH = 220
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -96,7 +98,7 @@ def fetch_episodes(config):
     }
     params = {
         "sort": "-airingDate",
-        "range": 4,
+        "range": 3,
     }
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=30)
@@ -267,13 +269,8 @@ def download_art(episode):
         resp = requests.get(episode["image_url"], timeout=15)
         resp.raise_for_status()
         img = Image.open(BytesIO(resp.content)).convert("RGB")
-        # Center-crop to square, then resize
-        w, h = img.size
-        side = min(w, h)
-        left = (w - side) // 2
-        top = (h - side) // 2
-        img = img.crop((left, top, left + side, top + side))
-        img = img.resize((140, 140), Image.LANCZOS)
+        # Resize to fit tile width, preserving aspect ratio
+        img.thumbnail((ART_WIDTH, ART_WIDTH), Image.LANCZOS)
         img.save(cache_path, "PNG")
         return img
     except Exception as e:
@@ -344,29 +341,35 @@ def render_dashboard(episodes, member_count):
         )
         return img
 
-    tile_w = 190
-    gutter = (WIDTH - tile_w * 4) // 5
-    art_size = 140
-    # Vertically center the tile block (art + label + date) in the area below header
-    tile_block_h = art_size + 10 + 24 + 20  # art + gap + label + date
+    tile_w = ART_WIDTH
+    gutter = (WIDTH - tile_w * NUM_TILES) // (NUM_TILES + 1)
+
+    # Download art first to know heights for vertical centering
+    art_images = [download_art(ep) for ep in episodes[:NUM_TILES]]
+    max_art_h = max((a.size[1] if a else 0) for a in art_images) or 140
+
+    # Vertically center the tile block in the area below header
+    tile_block_h = max_art_h + 10 + 24 + 20  # art + gap + label + date
     available_h = HEIGHT - header_h
     art_y = header_h + (available_h - tile_block_h) // 2
-    label_y = art_y + art_size + 10
-    date_y = label_y + 24
 
-    for i, ep in enumerate(episodes[:4]):
+    for i, ep in enumerate(episodes[:NUM_TILES]):
         tile_x = gutter + i * (tile_w + gutter)
-        art_x = tile_x + (tile_w - art_size) // 2
+        art = art_images[i]
 
         # Album art
-        art = download_art(ep)
         if art:
-            img.paste(art, (art_x, art_y))
+            art_x = tile_x + (tile_w - art.size[0]) // 2
+            art_y_offset = art_y + (max_art_h - art.size[1])  # bottom-align
+            img.paste(art, (art_x, art_y_offset))
         else:
             draw.rectangle(
-                [(art_x, art_y), (art_x + art_size, art_y + art_size)],
+                [(tile_x, art_y), (tile_x + tile_w, art_y + max_art_h)],
                 fill=(60, 60, 60),
             )
+
+        label_y = art_y + max_art_h + 10
+        date_y = label_y + 24
 
         # Show code
         code = ep["show_code"].upper()
