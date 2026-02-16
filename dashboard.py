@@ -267,6 +267,12 @@ def download_art(episode):
         resp = requests.get(episode["image_url"], timeout=15)
         resp.raise_for_status()
         img = Image.open(BytesIO(resp.content)).convert("RGB")
+        # Center-crop to square, then resize
+        w, h = img.size
+        side = min(w, h)
+        left = (w - side) // 2
+        top = (h - side) // 2
+        img = img.crop((left, top, left + side, top + side))
         img = img.resize((140, 140), Image.LANCZOS)
         img.save(cache_path, "PNG")
         return img
@@ -341,7 +347,10 @@ def render_dashboard(episodes, member_count):
     tile_w = 190
     gutter = (WIDTH - tile_w * 4) // 5
     art_size = 140
-    art_y = header_h + 30
+    # Vertically center the tile block (art + label + date) in the area below header
+    tile_block_h = art_size + 10 + 24 + 20  # art + gap + label + date
+    available_h = HEIGHT - header_h
+    art_y = header_h + (available_h - tile_block_h) // 2
     label_y = art_y + art_size + 10
     date_y = label_y + 24
 
