@@ -451,10 +451,26 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
     art_images = [download_art(ep) for ep in episodes[:NUM_TILES]]
     max_art_h = max((a.size[1] if a else 0) for a in art_images) or 140
 
-    # Vertically center the tile block between header and footer
-    tile_block_h = max_art_h + 10 + 24 + 20  # art + gap + label + date
+    # "Just Posted" bar + tiles + labels
+    just_posted_h = 28
+    tile_block_h = just_posted_h + 8 + max_art_h + 10 + 24 + 20  # bar + gap + art + gap + label + date
     available_h = HEIGHT - header_h - footer_h
-    art_y = header_h + (available_h - tile_block_h) // 2
+    block_y = header_h + (available_h - tile_block_h) // 2
+
+    # --- "Just Posted" white bar ---
+    draw.rectangle([(0, block_y), (WIDTH, block_y + just_posted_h)], fill=(255, 255, 255))
+    jp_text = "Just Posted"
+    bbox = draw.textbbox((0, 0), jp_text, font=font_label)
+    jp_w = bbox[2] - bbox[0]
+    jp_h = bbox[3] - bbox[1]
+    draw.text(
+        ((WIDTH - jp_w) // 2, block_y + (just_posted_h - jp_h) // 2),
+        jp_text,
+        fill=(0, 0, 0),
+        font=font_label,
+    )
+
+    art_y = block_y + just_posted_h + 8
 
     for i, ep in enumerate(episodes[:NUM_TILES]):
         tile_x = gutter + i * (tile_w + gutter)
@@ -508,8 +524,9 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
         bbox = draw.textbbox((0, 0), banner_text, font=font_label)
         bw = bbox[2] - bbox[0]
         bh = bbox[3] - bbox[1]
+        # Account for bbox top offset for true vertical centering
         draw.text(
-            ((WIDTH - bw) // 2, y + (banner_h - bh) // 2),
+            ((WIDTH - bw) // 2, y + (banner_h - bh) // 2 - bbox[1]),
             banner_text,
             fill=(255, 255, 255),
             font=font_label,
