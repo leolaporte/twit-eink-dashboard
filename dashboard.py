@@ -280,7 +280,30 @@ def render_dashboard(episodes, member_count):
     )
 
     # --- Episode tiles ---
+    if not episodes and not member_count:
+        # Both APIs failed with no cached data
+        error_msg = "No data yet — check network & config"
+        bbox = draw.textbbox((0, 0), error_msg, font=font_label)
+        ew = bbox[2] - bbox[0]
+        draw.text(
+            ((WIDTH - ew) // 2, HEIGHT // 2),
+            error_msg,
+            fill=(180, 180, 180),
+            font=font_label,
+        )
+        return img
+
     if not episodes:
+        # TWiT API failed but memberful might have data
+        error_msg = "No episode data available"
+        bbox = draw.textbbox((0, 0), error_msg, font=font_label)
+        ew = bbox[2] - bbox[0]
+        draw.text(
+            ((WIDTH - ew) // 2, HEIGHT // 2),
+            error_msg,
+            fill=(180, 180, 180),
+            font=font_label,
+        )
         return img
 
     tile_w = 190
