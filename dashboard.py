@@ -617,6 +617,29 @@ def push_to_pi(config, image_path):
         return False
 
 
+def push_to_discord(config, image_path):
+    """Post rendered dashboard image to Discord via webhook."""
+    discord = config.get("discord", {})
+    webhook_url = discord.get("webhook_url")
+    if not webhook_url:
+        log.info("No [discord] webhook_url configured, skipping Discord push")
+        return False
+
+    try:
+        with open(image_path, "rb") as f:
+            resp = requests.post(
+                webhook_url,
+                files={"file": ("dashboard.png", f, "image/png")},
+                timeout=30,
+            )
+            resp.raise_for_status()
+        log.info("Image posted to Discord webhook")
+        return True
+    except requests.RequestException as e:
+        log.warning("Discord webhook failed: %s", e)
+        return False
+
+
 def main():
     args = parse_args()
     config = load_config()
