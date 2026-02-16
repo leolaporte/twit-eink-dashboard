@@ -573,6 +573,50 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
     return img
 
 
+def push_to_pi(config, image_path):
+    """Push rendered image to Pi via scp and trigger display update."""
+    pi = config.get("pi", {})
+    host = pi.get("host")
+    if not host:
+        log.info("No [pi] host configured, skipping Pi push")
+        return False
+
+    user = pi.get("user", "pi")
+    remote_path = pi.get("image_path", "/home/pi/dashboard.png")
+    display_script = pi.get("display_script", "/home/pi/display.py")
+
+    import subprocess
+
+    # scp the image
+    dest = f"{user}@{host}:{remote_path}"
+    try:
+        subprocess.run(
+            ["scp", "-o", "ConnectTimeout=10", str(image_path), dest],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        log.info("Image pushed to %s", dest)
+    except subprocess.CalledProcessError as e:
+        log.warning("scp to Pi failed: %s", e.stderr.strip())
+        return False
+
+    # ssh to trigger display update
+    try:
+        subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=10", f"{user}@{host}",
+             f"python3 {display_script}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        log.info("Pi display update triggered")
+        return True
+    except subprocess.CalledProcessError as e:
+        log.warning("ssh display trigger failed: %s", e.stderr.strip())
+        return False
+
+
 def main():
     args = parse_args()
     config = load_config()
