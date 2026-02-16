@@ -413,11 +413,11 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
     # --- YouTube footer (calculate height first for vertical centering) ---
     footer_h = 0
     if youtube_subs:
-        # Split subs into two lines, roughly equal
         mid = (len(youtube_subs) + 1) // 2
         footer_lines = [youtube_subs[:mid], youtube_subs[mid:]]
-        line_h = 20  # font_date height + spacing
-        footer_h = len(footer_lines) * line_h + 15  # lines + padding
+        banner_h = 28       # red banner with title
+        line_h = 24         # bigger text lines
+        footer_h = banner_h + len(footer_lines) * line_h + 10
 
     # --- Episode tiles ---
     if not episodes and member_count is None:
@@ -498,18 +498,35 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
 
     # --- YouTube subscriber footer ---
     if youtube_subs and footer_h:
-        line_h = 20
-        y = HEIGHT - footer_h + 8
+        banner_h = 28
+        line_h = 24
+        y = HEIGHT - footer_h
+
+        # Red banner with title
+        draw.rectangle([(0, y), (WIDTH, y + banner_h)], fill=(180, 30, 30))
+        banner_text = "YouTube Subscriber Counts"
+        bbox = draw.textbbox((0, 0), banner_text, font=font_label)
+        bw = bbox[2] - bbox[0]
+        bh = bbox[3] - bbox[1]
+        draw.text(
+            ((WIDTH - bw) // 2, y + (banner_h - bh) // 2),
+            banner_text,
+            fill=(255, 255, 255),
+            font=font_label,
+        )
+        y += banner_h + 5
+
+        # Subscriber count lines (bigger font)
         separator = "  ·  "
         for line_subs in footer_lines:
             line_text = separator.join(f"{label} {count}" for label, count in line_subs)
-            bbox = draw.textbbox((0, 0), line_text, font=font_date)
+            bbox = draw.textbbox((0, 0), line_text, font=font_label)
             lw = bbox[2] - bbox[0]
             draw.text(
                 ((WIDTH - lw) // 2, y),
                 line_text,
-                fill=(160, 160, 160),
-                font=font_date,
+                fill=(200, 200, 200),
+                font=font_label,
             )
             y += line_h
 
