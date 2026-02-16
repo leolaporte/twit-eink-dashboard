@@ -48,6 +48,43 @@ def parse_args():
     return parser.parse_args()
 
 
+def _extract_show_code(clean_path):
+    """Extract show short code from cleanPath like '/shows/this-week-in-tech/episodes/1071'.
+
+    Falls back to uppercased slug initials if show not found in mapping.
+    """
+    # Show slug → short code mapping (from TWiT API /shows endpoint)
+    SHOW_CODES = {
+        "this-week-in-tech": "TWiT",
+        "security-now": "SN",
+        "macbreak-weekly": "MBW",
+        "windows-weekly": "WW",
+        "intelligent-machines": "IM",
+        "tech-news-weekly": "TNW",
+        "hands-on-tech": "HOT",
+        "ios-today": "iOS",
+        "this-week-in-space": "TWiS",
+        "home-theater-geeks": "HTG",
+        "hands-on-apple": "HOA",
+        "hands-on-windows": "HOW",
+        "untitled-linux-show": "ULS",
+        "ai-inside": "AI",
+        "twit-plus": "PLUS",
+        "twit-plus-club-shows": "PLUSSHOWS",
+        "twit-plus-news": "PLUSNEWS",
+        "total-leo": "Total Leo",
+        "total-mikah": "MIKAH",
+        "ask-the-tech-guys": "ATTG",
+        "hands-on-android": "H.O.A.",
+        "hands-on-photography": "HOP",
+    }
+    parts = clean_path.strip("/").split("/")
+    if len(parts) >= 2 and parts[0] == "shows":
+        slug = parts[1]
+        return SHOW_CODES.get(slug, slug.upper()[:6])
+    return "???"
+
+
 def fetch_episodes(config):
     """Fetch 4 most recent episodes from TWiT API."""
     twit = config["twit"]
@@ -70,25 +107,21 @@ def fetch_episodes(config):
         return None
 
     episodes = []
-    for item in data.get("_embedded", {}).get("episodes", []):
-        show_data = item.get("_embedded", {}).get("shows", [{}])[0]
-        hero = item.get("heroImage", {})
-        # Try to get a usable image URL from heroImage derivatives
-        image_url = None
-        if hero and hero.get("derivatives"):
-            derivatives = hero["derivatives"]
-            for deriv in derivatives:
-                if deriv.get("width") and 200 <= deriv["width"] <= 600:
-                    image_url = deriv["url"]
-                    break
-            if not image_url and derivatives:
-                image_url = derivatives[0].get("url")
-        if not image_url and hero:
-            image_url = hero.get("url")
+    for item in data.get("episodes", []):
+        hero = item.get("heroImage") or {}
+        derivatives = hero.get("derivatives") or {}
+        # Prefer 600x450 derivative for good quality at 140x140 tile size
+        image_url = (
+            derivatives.get("twit_slideshow_600x450")
+            or derivatives.get("thumbnail")
+            or hero.get("url")
+        )
+
+        show_code = _extract_show_code(item.get("cleanPath", ""))
 
         episodes.append({
-            "show_code": show_data.get("shortCode", "???"),
-            "show_name": show_data.get("label", "Unknown"),
+            "show_code": show_code,
+            "show_name": item.get("label", "Unknown"),
             "airing_date": item.get("airingDate"),
             "image_url": image_url,
             "episode_id": item.get("id"),
@@ -132,12 +165,11 @@ def fetch_memberful_count(config):
     while has_next:
         page += 1
         after_clause = f', after: "{cursor}"' if cursor else ""
-        query = (
-            '{"query": "query MemberCounting {members (first: 100'
-            + after_clause
-            + ') { totalCount pageInfo { endCursor hasNextPage } '
-            + 'edges { node { creditCard { brand } subscriptions { active } } } } }"}'
-        )
+        query = json.dumps({"query":
+            "{ members(first: 100" + after_clause
+            + ") { pageInfo { endCursor hasNextPage } "
+            + "edges { node { creditCard { brand } subscriptions { active } } } } }"
+        })
         try:
             resp = requests.post(url, headers=headers, data=query, timeout=30)
             resp.raise_for_status()
@@ -267,7 +299,7 @@ def render_dashboard(episodes, member_count):
     # --- Header bar ---
     header_h = 60
     draw.rectangle([(0, 0), (WIDTH, header_h)], fill=(47, 110, 145))
-    count_str = f"{member_count:,}" if member_count else "—"
+    count_str = f"{member_count:,}" if member_count is not None else "—"
     header_text = f"CLUB TWiT PAID MEMBERS: {count_str}"
     bbox = draw.textbbox((0, 0), header_text, font=font_header)
     text_w = bbox[2] - bbox[0]
