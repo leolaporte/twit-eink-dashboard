@@ -6,10 +6,13 @@ import json
 import logging
 import sys
 import time
+from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 
 import requests
 import tomllib
+from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_PATH = SCRIPT_DIR / "config.toml"
@@ -178,6 +181,154 @@ def _load_cached_count():
     return None
 
 
+def _load_fonts():
+    """Load fonts with fallback to default."""
+    font_paths = [
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    ]
+    font_regular_paths = [
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    ]
+
+    font_header = None
+    font_label = None
+    font_date = None
+
+    for path in font_paths:
+        try:
+            font_header = ImageFont.truetype(path, 28)
+            font_label = ImageFont.truetype(path, 18)
+            break
+        except OSError:
+            continue
+
+    for path in font_regular_paths:
+        try:
+            font_date = ImageFont.truetype(path, 16)
+            break
+        except OSError:
+            continue
+
+    if font_header is None:
+        font_header = ImageFont.load_default()
+        font_label = font_header
+    if font_date is None:
+        font_date = font_label
+
+    return font_header, font_label, font_date
+
+
+def download_art(episode):
+    """Download and cache album art for an episode. Returns PIL Image or None."""
+    if not episode.get("image_url"):
+        return None
+
+    cache_path = ART_CACHE_DIR / f"{episode['episode_id']}.png"
+    if cache_path.exists():
+        return Image.open(cache_path)
+
+    try:
+        resp = requests.get(episode["image_url"], timeout=15)
+        resp.raise_for_status()
+        img = Image.open(BytesIO(resp.content)).convert("RGB")
+        img = img.resize((140, 140), Image.LANCZOS)
+        img.save(cache_path, "PNG")
+        return img
+    except Exception as e:
+        log.error("Failed to download art for %s: %s", episode["show_code"], e)
+        return None
+
+
+def format_airing_date(date_str):
+    """Format an ISO date string to compact 'M/DD H:MMa' format."""
+    if not date_str:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        dt = dt.astimezone()  # convert to local time
+        hour = dt.hour
+        ampm = "a" if hour < 12 else "p"
+        hour = hour % 12 or 12
+        return f"{dt.month}/{dt.day} {hour}:{dt.minute:02d}{ampm}"
+    except (ValueError, TypeError):
+        return "—"
+
+
+def render_dashboard(episodes, member_count):
+    """Render the dashboard as an 800x480 PIL Image."""
+    img = Image.new("RGB", (WIDTH, HEIGHT), color=(0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    font_header, font_label, font_date = _load_fonts()
+
+    # --- Header bar ---
+    header_h = 60
+    draw.rectangle([(0, 0), (WIDTH, header_h)], fill=(47, 110, 145))
+    count_str = f"{member_count:,}" if member_count else "—"
+    header_text = f"CLUB TWiT PAID MEMBERS: {count_str}"
+    bbox = draw.textbbox((0, 0), header_text, font=font_header)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+    draw.text(
+        ((WIDTH - text_w) // 2, (header_h - text_h) // 2),
+        header_text,
+        fill=(255, 255, 255),
+        font=font_header,
+    )
+
+    # --- Episode tiles ---
+    if not episodes:
+        return img
+
+    tile_w = 190
+    gutter = (WIDTH - tile_w * 4) // 5
+    art_size = 140
+    art_y = header_h + 30
+    label_y = art_y + art_size + 10
+    date_y = label_y + 24
+
+    for i, ep in enumerate(episodes[:4]):
+        tile_x = gutter + i * (tile_w + gutter)
+        art_x = tile_x + (tile_w - art_size) // 2
+
+        # Album art
+        art = download_art(ep)
+        if art:
+            img.paste(art, (art_x, art_y))
+        else:
+            draw.rectangle(
+                [(art_x, art_y), (art_x + art_size, art_y + art_size)],
+                fill=(60, 60, 60),
+            )
+
+        # Show code
+        code = ep["show_code"].upper()
+        bbox = draw.textbbox((0, 0), code, font=font_label)
+        cw = bbox[2] - bbox[0]
+        draw.text(
+            (tile_x + (tile_w - cw) // 2, label_y),
+            code,
+            fill=(255, 255, 255),
+            font=font_label,
+        )
+
+        # Airing date
+        date_str = format_airing_date(ep.get("airing_date"))
+        bbox = draw.textbbox((0, 0), date_str, font=font_date)
+        dw = bbox[2] - bbox[0]
+        draw.text(
+            (tile_x + (tile_w - dw) // 2, date_y),
+            date_str,
+            fill=(200, 200, 200),
+            font=font_date,
+        )
+
+    return img
+
+
 def main():
     args = parse_args()
     config = load_config()
@@ -189,10 +340,27 @@ def main():
         for ep in episodes:
             log.info("  %s: %s (%s)", ep["show_code"], ep["show_name"], ep["airing_date"])
     else:
-        log.warning("  Failed to fetch episodes")
+        log.warning("Failed to fetch episodes")
 
     member_count = fetch_memberful_count(config)
     log.info("Club TWiT paid members: %s", member_count)
+
+    img = render_dashboard(episodes or [], member_count)
+
+    if args.preview:
+        preview_path = SCRIPT_DIR / "preview.png"
+        img.save(preview_path)
+        log.info("Preview saved to %s", preview_path)
+    else:
+        try:
+            from inky.auto import auto
+            display = auto()
+            display.set_image(img)
+            display.show()
+            log.info("Display updated.")
+        except ImportError:
+            log.error("inky library not available. Use --preview on non-Pi machines.")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
