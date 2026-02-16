@@ -4,7 +4,7 @@
 import sys
 from pathlib import Path
 
-from inky.auto import auto
+from inky.inky_ac073tc1a import Inky
 from PIL import Image
 
 IMAGE_PATH = Path.home() / "dashboard.png"
@@ -17,7 +17,7 @@ def main():
         sys.exit(1)
 
     img = Image.open(path)
-    display = auto()
+    display = Inky()
     display.set_image(img)
     display.show()
     print(f"Display updated from {path}")
