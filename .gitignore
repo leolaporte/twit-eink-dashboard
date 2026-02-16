@@ -1,0 +1,6 @@
+config.toml
+cache/
+*.pyc
+__pycache__/
+preview.png
+.venv/
