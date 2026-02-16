@@ -2,8 +2,10 @@
 """TWiT E-Ink Dashboard — renders to Inky Impression 7.3" or preview PNG."""
 
 import argparse
+import json
 import logging
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -92,6 +94,90 @@ def fetch_episodes(config):
     return episodes
 
 
+def fetch_memberful_count(config):
+    """Fetch active paid member count from Memberful GraphQL API.
+
+    Paginates through all members, counts those with active subscription
+    and a credit card on file. Caches result to avoid frequent re-queries.
+    """
+    # Check cache first
+    if MEMBERFUL_CACHE.exists():
+        try:
+            with open(MEMBERFUL_CACHE) as f:
+                cached = json.load(f)
+            hours_since = (time.time() - cached["timestamp"]) / 3600
+            refresh_hours = config.get("display", {}).get("memberful_refresh_hours", 4)
+            if hours_since < refresh_hours:
+                log.info("Using cached member count: %d (%.1fh old)", cached["count"], hours_since)
+                return cached["count"]
+        except (json.JSONDecodeError, KeyError) as e:
+            log.warning("Corrupt memberful cache, refetching: %s", e)
+
+    memberful = config["memberful"]
+    url = f"{memberful['api_url']}?api_user_id={memberful['api_user_id']}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {memberful['api_key']}",
+        "Cache-Control": "no-cache",
+    }
+
+    active_count = 0
+    has_next = True
+    cursor = None
+    page = 0
+
+    while has_next:
+        page += 1
+        after_clause = f', after: "{cursor}"' if cursor else ""
+        query = (
+            '{"query": "query MemberCounting {members (first: 100'
+            + after_clause
+            + ') { totalCount pageInfo { endCursor hasNextPage } '
+            + 'edges { node { creditCard { brand } subscriptions { active } } } } }"}'
+        )
+        try:
+            resp = requests.post(url, headers=headers, data=query, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as e:
+            log.error("Memberful API request failed on page %d: %s", page, e)
+            return _load_cached_count()
+
+        members = data.get("data", {}).get("members", {})
+        page_info = members.get("pageInfo", {})
+        has_next = page_info.get("hasNextPage", False)
+        cursor = page_info.get("endCursor")
+
+        for edge in members.get("edges", []):
+            node = edge.get("node", {})
+            subs = node.get("subscriptions", [])
+            card = node.get("creditCard")
+            if subs and subs[0].get("active") and card and card.get("brand"):
+                active_count += 1
+
+        log.info("Memberful page %d: running count = %d", page, active_count)
+
+    # Cache the result
+    with open(MEMBERFUL_CACHE, "w") as f:
+        json.dump({"count": active_count, "timestamp": time.time()}, f)
+
+    log.info("Memberful total active paid members: %d", active_count)
+    return active_count
+
+
+def _load_cached_count():
+    """Load last cached member count as fallback."""
+    if MEMBERFUL_CACHE.exists():
+        try:
+            with open(MEMBERFUL_CACHE) as f:
+                cached = json.load(f)
+            log.info("Falling back to cached count: %d", cached["count"])
+            return cached["count"]
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return None
+
+
 def main():
     args = parse_args()
     config = load_config()
@@ -104,6 +190,9 @@ def main():
             log.info("  %s: %s (%s)", ep["show_code"], ep["show_name"], ep["airing_date"])
     else:
         log.warning("  Failed to fetch episodes")
+
+    member_count = fetch_memberful_count(config)
+    log.info("Club TWiT paid members: %s", member_count)
 
 
 if __name__ == "__main__":
