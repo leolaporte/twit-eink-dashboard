@@ -23,7 +23,7 @@ MEMBERFUL_CACHE = CACHE_DIR / "memberful.json"
 WIDTH = 800
 HEIGHT = 480
 NUM_TILES = 3
-ART_WIDTH = 220
+ART_WIDTH = 256
 
 # YouTube channels: (label, channel_id) — ordered by subscriber count, high to low
 YOUTUBE_CHANNELS = [
@@ -326,12 +326,14 @@ def _load_fonts():
 
     font_header = None
     font_label = None
+    font_title = None
     font_date = None
 
     for path in font_paths:
         try:
             font_header = ImageFont.truetype(path, 28)
             font_label = ImageFont.truetype(path, 18)
+            font_title = ImageFont.truetype(path, 14)
             break
         except OSError:
             continue
@@ -346,10 +348,12 @@ def _load_fonts():
     if font_header is None:
         font_header = ImageFont.load_default()
         font_label = font_header
+    if font_title is None:
+        font_title = font_label
     if font_date is None:
         font_date = font_label
 
-    return font_header, font_label, font_date
+    return font_header, font_label, font_title, font_date
 
 
 def download_art(episode):
@@ -393,7 +397,7 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
     """Render the dashboard as an 800x480 PIL Image."""
     img = Image.new("RGB", (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    font_header, font_label, font_date = _load_fonts()
+    font_header, font_label, font_title, font_date = _load_fonts()
 
     # --- Header bar ---
     header_h = 60
@@ -451,9 +455,9 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
     art_images = [download_art(ep) for ep in episodes[:NUM_TILES]]
     max_art_h = max((a.size[1] if a else 0) for a in art_images) or 140
 
-    # "Just Posted" bar + tiles + labels
+    # "Just Posted" bar + tiles + title + labels
     just_posted_h = 28
-    tile_block_h = just_posted_h + 8 + max_art_h + 10 + 24 + 20  # bar + gap + art + gap + label + date
+    tile_block_h = just_posted_h + 8 + max_art_h + 4 + 18 + 24 + 20  # bar + gap + art + gap + title + label + date
     available_h = HEIGHT - header_h - footer_h
     block_y = header_h + (available_h - tile_block_h) // 2
 
@@ -487,10 +491,28 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
                 fill=(60, 60, 60),
             )
 
-        label_y = art_y + max_art_h + 10
-        date_y = label_y + 24
+        # Episode title in quotes
+        title_y = art_y + max_art_h + 4
+        raw_title = ep["show_name"]
+        title_text = f'"{raw_title}"'
+        bbox = draw.textbbox((0, 0), title_text, font=font_title)
+        tw = bbox[2] - bbox[0]
+        # Truncate progressively if wider than tile
+        max_chars = len(raw_title)
+        while tw > tile_w and max_chars > 3:
+            max_chars -= 1
+            title_text = f'"{raw_title[:max_chars]}…"'
+            bbox = draw.textbbox((0, 0), title_text, font=font_title)
+            tw = bbox[2] - bbox[0]
+        draw.text(
+            (tile_x + (tile_w - tw) // 2, title_y),
+            title_text,
+            fill=(255, 255, 255),
+            font=font_title,
+        )
 
         # Show code
+        label_y = title_y + 18
         code = ep["show_code"].upper()
         bbox = draw.textbbox((0, 0), code, font=font_label)
         cw = bbox[2] - bbox[0]
@@ -502,6 +524,7 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
         )
 
         # Airing date
+        date_y = label_y + 24
         date_str = format_airing_date(ep.get("airing_date"))
         bbox = draw.textbbox((0, 0), date_str, font=font_date)
         dw = bbox[2] - bbox[0]
