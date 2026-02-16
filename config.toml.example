@@ -7,6 +7,9 @@ api_url = "https://twit.memberful.com/api/graphql"
 api_user_id = "55380"
 api_key = "your_api_key"
 
+[youtube]
+api_key = "your_youtube_api_key"
+
 [display]
 refresh_minutes = 30
 memberful_refresh_hours = 4

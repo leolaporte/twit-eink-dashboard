@@ -25,6 +25,19 @@ HEIGHT = 480
 NUM_TILES = 3
 ART_WIDTH = 220
 
+# YouTube channels: (label, channel_id) — ordered by subscriber count, high to low
+YOUTUBE_CHANNELS = [
+    ("TWiT", "UCwY9B5_8QDGP8niZhBtTh8w"),        # 280K
+    ("SN", "UCNbqa_9xihC8yaV2o6dlsUg"),           # 76.1K
+    ("TWiT Show", "UCagoIYmo_gO1iVaCeeSikEg"),    # 63.5K
+    ("HOT", "UCY96oB1A0TiENISMIy_E2gg"),          # 61.8K
+    ("MBW", "UC7DLT1zdSVGvnW11y4kqDng"),          # 30.4K
+    ("WW", "UC1WHdBv9P5tYEGfy-btvYfA"),           # 26.5K
+    ("iOS", "UCnVDIyVmcIVxb34i0LiD-3w"),          # 22.3K
+    ("TWiS", "UCQp83PyFvuolpx529fhih_Q"),         # 4.6K
+]
+YOUTUBE_CACHE = CACHE_DIR / "youtube.json"
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -215,6 +228,89 @@ def _load_cached_count():
     return None
 
 
+def fetch_youtube_subs(config):
+    """Fetch YouTube subscriber counts for all configured channels.
+
+    Returns list of (label, subscriber_count_str) tuples.
+    Caches results alongside memberful data (same refresh interval).
+    """
+    # Check cache first
+    if YOUTUBE_CACHE.exists():
+        try:
+            with open(YOUTUBE_CACHE) as f:
+                cached = json.load(f)
+            hours_since = (time.time() - cached["timestamp"]) / 3600
+            refresh_hours = config.get("display", {}).get("memberful_refresh_hours", 4)
+            if hours_since < refresh_hours:
+                log.info("Using cached YouTube subs (%.1fh old)", hours_since)
+                return cached["subs"]
+        except (json.JSONDecodeError, KeyError) as e:
+            log.warning("Corrupt YouTube cache, refetching: %s", e)
+
+    yt = config.get("youtube", {})
+    api_key = yt.get("api_key")
+    if not api_key:
+        log.warning("No YouTube API key configured")
+        return _load_cached_youtube()
+
+    # Batch all channel IDs into one API call
+    channel_ids = ",".join(cid for _, cid in YOUTUBE_CHANNELS)
+    url = "https://www.googleapis.com/youtube/v3/channels"
+    params = {
+        "part": "statistics",
+        "id": channel_ids,
+        "key": api_key,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as e:
+        log.error("YouTube API request failed: %s", e)
+        return _load_cached_youtube()
+
+    # Build a lookup by channel ID
+    stats_by_id = {}
+    for item in data.get("items", []):
+        count = int(item["statistics"].get("subscriberCount", 0))
+        stats_by_id[item["id"]] = count
+
+    subs = []
+    for label, cid in YOUTUBE_CHANNELS:
+        count = stats_by_id.get(cid, 0)
+        subs.append((label, _format_sub_count(count)))
+
+    # Cache
+    with open(YOUTUBE_CACHE, "w") as f:
+        json.dump({"subs": subs, "timestamp": time.time()}, f)
+
+    log.info("YouTube subs fetched: %s", subs)
+    return subs
+
+
+def _format_sub_count(count):
+    """Format subscriber count like '22.8K' or '280K'."""
+    if count >= 1_000_000:
+        return f"{count / 1_000_000:.1f}M"
+    elif count >= 100_000:
+        return f"{count // 1000}K"
+    elif count >= 1_000:
+        return f"{count / 1000:.1f}K"
+    return str(count)
+
+
+def _load_cached_youtube():
+    """Load last cached YouTube subs as fallback."""
+    if YOUTUBE_CACHE.exists():
+        try:
+            with open(YOUTUBE_CACHE) as f:
+                cached = json.load(f)
+            return cached["subs"]
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return None
+
+
 def _load_fonts():
     """Load fonts with fallback to default."""
     font_paths = [
@@ -293,7 +389,7 @@ def format_airing_date(date_str):
         return "—"
 
 
-def render_dashboard(episodes, member_count):
+def render_dashboard(episodes, member_count, youtube_subs=None):
     """Render the dashboard as an 800x480 PIL Image."""
     img = Image.new("RGB", (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -314,9 +410,17 @@ def render_dashboard(episodes, member_count):
         font=font_header,
     )
 
+    # --- YouTube footer (calculate height first for vertical centering) ---
+    footer_h = 0
+    if youtube_subs:
+        # Split subs into two lines, roughly equal
+        mid = (len(youtube_subs) + 1) // 2
+        footer_lines = [youtube_subs[:mid], youtube_subs[mid:]]
+        line_h = 20  # font_date height + spacing
+        footer_h = len(footer_lines) * line_h + 15  # lines + padding
+
     # --- Episode tiles ---
-    if not episodes and not member_count:
-        # Both APIs failed with no cached data
+    if not episodes and member_count is None:
         error_msg = "No data yet — check network & config"
         bbox = draw.textbbox((0, 0), error_msg, font=font_label)
         ew = bbox[2] - bbox[0]
@@ -329,7 +433,6 @@ def render_dashboard(episodes, member_count):
         return img
 
     if not episodes:
-        # TWiT API failed but memberful might have data
         error_msg = "No episode data available"
         bbox = draw.textbbox((0, 0), error_msg, font=font_label)
         ew = bbox[2] - bbox[0]
@@ -348,9 +451,9 @@ def render_dashboard(episodes, member_count):
     art_images = [download_art(ep) for ep in episodes[:NUM_TILES]]
     max_art_h = max((a.size[1] if a else 0) for a in art_images) or 140
 
-    # Vertically center the tile block in the area below header
+    # Vertically center the tile block between header and footer
     tile_block_h = max_art_h + 10 + 24 + 20  # art + gap + label + date
-    available_h = HEIGHT - header_h
+    available_h = HEIGHT - header_h - footer_h
     art_y = header_h + (available_h - tile_block_h) // 2
 
     for i, ep in enumerate(episodes[:NUM_TILES]):
@@ -393,6 +496,23 @@ def render_dashboard(episodes, member_count):
             font=font_date,
         )
 
+    # --- YouTube subscriber footer ---
+    if youtube_subs and footer_h:
+        line_h = 20
+        y = HEIGHT - footer_h + 8
+        separator = "  ·  "
+        for line_subs in footer_lines:
+            line_text = separator.join(f"{label} {count}" for label, count in line_subs)
+            bbox = draw.textbbox((0, 0), line_text, font=font_date)
+            lw = bbox[2] - bbox[0]
+            draw.text(
+                ((WIDTH - lw) // 2, y),
+                line_text,
+                fill=(160, 160, 160),
+                font=font_date,
+            )
+            y += line_h
+
     return img
 
 
@@ -412,7 +532,11 @@ def main():
     member_count = fetch_memberful_count(config)
     log.info("Club TWiT paid members: %s", member_count)
 
-    img = render_dashboard(episodes or [], member_count)
+    youtube_subs = fetch_youtube_subs(config)
+    if youtube_subs:
+        log.info("YouTube subs: %s", youtube_subs)
+
+    img = render_dashboard(episodes or [], member_count, youtube_subs)
 
     if args.preview:
         preview_path = SCRIPT_DIR / "preview.png"
