@@ -1,0 +1,7 @@
+[Unit]
+Description=TWiT E-Ink Dashboard updater
+
+[Service]
+Type=oneshot
+ExecStart=/home/leo/opt/twit-dashboard/.venv/bin/python3 /home/leo/opt/twit-dashboard/dashboard.py
+WorkingDirectory=/home/leo/opt/twit-dashboard
