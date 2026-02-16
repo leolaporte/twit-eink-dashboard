@@ -662,20 +662,18 @@ def main():
 
     img = render_dashboard(episodes or [], member_count, youtube_subs)
 
+    # Always save locally
+    preview_path = SCRIPT_DIR / "preview.png"
+    img.save(preview_path)
+    log.info("Image saved to %s", preview_path)
+
     if args.preview:
-        preview_path = SCRIPT_DIR / "preview.png"
-        img.save(preview_path)
-        log.info("Preview saved to %s", preview_path)
-    else:
-        try:
-            from inky.auto import auto
-            display = auto()
-            display.set_image(img)
-            display.show()
-            log.info("Display updated.")
-        except ImportError:
-            log.error("inky library not available. Use --preview on non-Pi machines.")
-            sys.exit(1)
+        log.info("Preview mode — skipping Pi and Discord delivery")
+        return
+
+    # Deliver to Pi and Discord (both fire-and-forget)
+    push_to_pi(config, preview_path)
+    push_to_discord(config, preview_path)
 
 
 if __name__ == "__main__":
