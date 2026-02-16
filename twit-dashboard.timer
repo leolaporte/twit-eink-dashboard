@@ -1,9 +1,9 @@
 [Unit]
-Description=Refresh TWiT E-Ink Dashboard every 30 minutes
+Description=Refresh TWiT E-Ink Dashboard every hour
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=30min
+OnUnitActiveSec=1h
 AccuracySec=1min
 
 [Install]

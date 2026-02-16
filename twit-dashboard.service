@@ -1,5 +1,5 @@
 [Unit]
-Description=TWiT E-Ink Dashboard updater
+Description=TWiT E-Ink Dashboard renderer and delivery
 
 [Service]
 Type=oneshot
