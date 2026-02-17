@@ -20,5 +20,4 @@ display_script = "/home/pi/display.py"
 webhook_url = ""
 
 [display]
-refresh_minutes = 60
-memberful_refresh_hours = 4
+memberful_refresh_hours = 0
