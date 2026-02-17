@@ -127,7 +127,7 @@ def fetch_episodes(config):
         derivatives = hero.get("derivatives") or {}
         # Prefer 600x450 derivative for good quality at 140x140 tile size
         image_url = (
-            derivatives.get("twit_slideshow_600x450")
+            derivatives.get("twit_thumb_720x405")
             or derivatives.get("thumbnail")
             or hero.get("url")
         )
@@ -325,6 +325,7 @@ def _load_fonts():
     ]
 
     font_header = None
+    font_code = None
     font_label = None
     font_title = None
     font_date = None
@@ -332,8 +333,9 @@ def _load_fonts():
     for path in font_paths:
         try:
             font_header = ImageFont.truetype(path, 28)
+            font_code = ImageFont.truetype(path, 22)
             font_label = ImageFont.truetype(path, 18)
-            font_title = ImageFont.truetype(path, 14)
+            font_title = ImageFont.truetype(path, 16)
             break
         except OSError:
             continue
@@ -348,12 +350,14 @@ def _load_fonts():
     if font_header is None:
         font_header = ImageFont.load_default()
         font_label = font_header
+    if font_code is None:
+        font_code = font_label
     if font_title is None:
         font_title = font_label
     if font_date is None:
         font_date = font_label
 
-    return font_header, font_label, font_title, font_date
+    return font_header, font_code, font_label, font_title, font_date
 
 
 def download_art(episode):
@@ -397,7 +401,7 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
     """Render the dashboard as an 800x480 PIL Image."""
     img = Image.new("RGB", (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    font_header, font_label, font_title, font_date = _load_fonts()
+    font_header, font_code, font_label, font_title, font_date = _load_fonts()
 
     # --- Header bar ---
     header_h = 60
@@ -455,9 +459,10 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
     art_images = [download_art(ep) for ep in episodes[:NUM_TILES]]
     max_art_h = max((a.size[1] if a else 0) for a in art_images) or 140
 
-    # "Just Posted" bar + tiles + title + labels
+    # "Just Posted" bar + tiles + title (2 lines) + code + date
     just_posted_h = 28
-    tile_block_h = just_posted_h + 8 + max_art_h + 4 + 18 + 24 + 20  # bar + gap + art + gap + title + label + date
+    title_line_h = 16
+    tile_block_h = just_posted_h + 8 + max_art_h + 6 + title_line_h * 2 + 4 + 26 + 6 + 20  # bar+gap+art+gap+title*2+gap+code+gap+date
     available_h = HEIGHT - header_h - footer_h
     block_y = header_h + (available_h - tile_block_h) // 2
 
@@ -491,40 +496,56 @@ def render_dashboard(episodes, member_count, youtube_subs=None):
                 fill=(60, 60, 60),
             )
 
-        # Episode title in quotes
-        title_y = art_y + max_art_h + 4
+        # Episode title in quotes (up to 2 lines)
+        title_y = art_y + max_art_h + 6
         raw_title = ep["show_name"]
+        # Try to fit on one line first
         title_text = f'"{raw_title}"'
         bbox = draw.textbbox((0, 0), title_text, font=font_title)
         tw = bbox[2] - bbox[0]
-        # Truncate progressively if wider than tile
-        max_chars = len(raw_title)
-        while tw > tile_w and max_chars > 3:
-            max_chars -= 1
-            title_text = f'"{raw_title[:max_chars]}…"'
-            bbox = draw.textbbox((0, 0), title_text, font=font_title)
-            tw = bbox[2] - bbox[0]
-        draw.text(
-            (tile_x + (tile_w - tw) // 2, title_y),
-            title_text,
-            fill=(255, 255, 255),
-            font=font_title,
-        )
+        if tw <= tile_w:
+            # Fits on one line
+            draw.text(
+                (tile_x + (tile_w - tw) // 2, title_y),
+                title_text,
+                fill=(255, 255, 255),
+                font=font_title,
+            )
+        else:
+            # Word-wrap into 2 lines
+            words = raw_title.split()
+            best_split = len(words) // 2 or 1
+            line1 = " ".join(words[:best_split])
+            line2 = " ".join(words[best_split:])
+            for line_idx, line in enumerate([f'"{line1}', f'{line2}"']):
+                bbox = draw.textbbox((0, 0), line, font=font_title)
+                lw = bbox[2] - bbox[0]
+                # Truncate if still too wide
+                while lw > tile_w and len(line) > 4:
+                    line = line[:-2] + "…"
+                    bbox = draw.textbbox((0, 0), line, font=font_title)
+                    lw = bbox[2] - bbox[0]
+                draw.text(
+                    (tile_x + (tile_w - lw) // 2, title_y + line_idx * title_line_h),
+                    line,
+                    fill=(255, 255, 255),
+                    font=font_title,
+                )
 
-        # Show code
-        label_y = title_y + 18
+        # Show code (bigger)
+        label_y = title_y + title_line_h * 2 + 4
         code = ep["show_code"].upper()
-        bbox = draw.textbbox((0, 0), code, font=font_label)
+        bbox = draw.textbbox((0, 0), code, font=font_code)
         cw = bbox[2] - bbox[0]
         draw.text(
             (tile_x + (tile_w - cw) // 2, label_y),
             code,
             fill=(255, 255, 255),
-            font=font_label,
+            font=font_code,
         )
 
         # Airing date
-        date_y = label_y + 24
+        date_y = label_y + 26 + 6
         date_str = format_airing_date(ep.get("airing_date"))
         bbox = draw.textbbox((0, 0), date_str, font=font_date)
         dw = bbox[2] - bbox[0]
@@ -605,7 +626,7 @@ def push_to_pi(config, image_path):
     try:
         subprocess.run(
             ["ssh", "-o", "ConnectTimeout=10", f"{user}@{host}",
-             f"python3 {display_script}"],
+             display_script],
             check=True,
             capture_output=True,
             text=True,
