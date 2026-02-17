@@ -1,10 +1,9 @@
 [Unit]
-Description=Refresh TWiT E-Ink Dashboard every hour
+Description=Refresh TWiT E-Ink Dashboard daily at 11am Pacific
 
 [Timer]
-OnBootSec=1min
-OnUnitActiveSec=1h
-AccuracySec=1min
+OnCalendar=*-*-* 11:00:00
+Persistent=true
 
 [Install]
 WantedBy=timers.target
