@@ -4,6 +4,7 @@
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -45,12 +46,34 @@ log = logging.getLogger(__name__)
 def load_config():
     if not CONFIG_PATH.exists():
         print(
-            f"Error: {CONFIG_PATH} not found. Copy config.toml.example and fill in API keys.",
+            f"Error: {CONFIG_PATH} not found.",
             file=sys.stderr,
         )
         sys.exit(1)
     with open(CONFIG_PATH, "rb") as f:
-        return tomllib.load(f)
+        config = tomllib.load(f)
+
+    # Overlay secrets from environment variables
+    env_map = {
+        ("twit", "app_id"): "TWIT_APP_ID",
+        ("twit", "app_key"): "TWIT_APP_KEY",
+        ("memberful", "api_key"): "MEMBERFUL_API_KEY",
+        ("memberful", "api_user_id"): "MEMBERFUL_API_USER_ID",
+        ("youtube", "api_key"): "YOUTUBE_API_KEY",
+        ("discord", "webhook_url"): "DISCORD_WEBHOOK_URL",
+    }
+    missing = []
+    for (section, key), env_var in env_map.items():
+        value = os.environ.get(env_var)
+        if value:
+            config.setdefault(section, {})[key] = value
+        elif key not in config.get(section, {}):
+            missing.append(env_var)
+
+    if missing:
+        log.warning("Missing env vars (set in ~/.secrets): %s", ", ".join(missing))
+
+    return config
 
 
 def parse_args():

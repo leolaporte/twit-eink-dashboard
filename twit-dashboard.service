@@ -3,5 +3,6 @@ Description=TWiT E-Ink Dashboard renderer and delivery
 
 [Service]
 Type=oneshot
+EnvironmentFile=/home/leo/.secrets.env
 ExecStart=/home/leo/Projects/twit-eink-dashboard/.venv/bin/python3 /home/leo/Projects/twit-eink-dashboard/dashboard.py
 WorkingDirectory=/home/leo/Projects/twit-eink-dashboard

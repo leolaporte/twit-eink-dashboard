@@ -1,6 +1,10 @@
-config.toml
 cache/
 *.pyc
 __pycache__/
 preview.png
 .venv/
+
+# Emacs backup/temp files
+*~
+\#*\#
+.*.~undo-tree~
