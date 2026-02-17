@@ -4,7 +4,7 @@ app_key = "your_app_key"
 
 [memberful]
 api_url = "https://twit.memberful.com/api/graphql"
-api_user_id = "55380"
+api_user_id = "your_user_id"
 api_key = "your_api_key"
 
 [youtube]
