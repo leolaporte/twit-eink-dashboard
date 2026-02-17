@@ -3,5 +3,5 @@ Description=TWiT E-Ink Dashboard renderer and delivery
 
 [Service]
 Type=oneshot
-ExecStart=/home/leo/opt/twit-dashboard/.venv/bin/python3 /home/leo/opt/twit-dashboard/dashboard.py
-WorkingDirectory=/home/leo/opt/twit-dashboard
+ExecStart=/home/leo/Projects/twit-eink-dashboard/.venv/bin/python3 /home/leo/Projects/twit-eink-dashboard/dashboard.py
+WorkingDirectory=/home/leo/Projects/twit-eink-dashboard
